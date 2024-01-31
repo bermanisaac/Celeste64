@@ -39,7 +39,15 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 	private const float DashJumpHoldTime = .3f;
 	private const float DashJumpXYBoost = 16;
 
-	private const float SkidDotThreshold = -.7f;
+	private const float Jump2Speed = 120;
+	private const float Jump3Speed = 180;
+	private const float MinMulJumpVel = 32;
+	private const float MulJumpTime = 0.3f;
+    private const float Jump2AnimTime = 16f / 24f;
+    private const float Jump3AnimTime = 48f / 24f;
+
+
+    private const float SkidDotThreshold = -.7f;
 	private const float SkiddingStartAccel = 300;
 	private const float SkiddingAccel = 500;
 	private const float EndSkidSpeed = MaxSpeed * .8f;
@@ -111,7 +119,8 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 	private static Vec3 storedCameraForward;
 	private static float storedCameraDistance;
 
-	private enum States { Normal, Dashing, Skidding, Climbing, StrawbGet, FeatherStart, Feather, Respawn, Dead, StrawbReveal, Cutscene, Bubble, Cassette };
+	private enum States { Normal, Dashing, Skidding, Climbing, StrawbGet, 
+		FeatherStart, Feather, Respawn, Dead, StrawbReveal, Cutscene, Bubble, Cassette };
 	private enum Events { Land };
 
 	public bool Dead = false;
@@ -422,6 +431,18 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 				float t = Calc.ClampedMap(previousVelocity.Z, 0, MaxFall);
 				ModelScale = Vec3.Lerp(Vec3.One, new(1.4f, 1.4f, .6f), t);
 				stateMachine.CallEvent(Events.Land);
+
+				switch(consectiveJumps)
+				{
+					case 0:
+					case 1:
+						consectiveJumps++;
+						break;
+					default:
+						consectiveJumps = 0;
+						break;
+				}
+				tMultiJump = MulJumpTime;
 
 				if (!Game.Instance.IsMidTransition && !InBubble)
 				{
@@ -742,6 +763,34 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 		Audio.Play(Sfx.sfx_jump, Position);
 	}
 
+	private void MultiJump(int whichJump = 2)
+	{
+        Position = Position with { Z = coyoteZ };
+		if(whichJump == 2)
+			holdJumpSpeed = velocity.Z = Jump2Speed;
+		else if(whichJump == 3)
+            holdJumpSpeed = velocity.Z = Jump3Speed;
+
+        tHoldJump = JumpHoldTime;
+        tCoyote = 0;
+        autoJump = false;
+
+        var input = RelativeMoveInput;
+        if (input != Vec2.Zero)
+        {
+            input = input.Normalized();
+            targetFacing = input;
+            velocity += new Vec3(input * JumpXYBoost, 0);
+        }
+
+        AddPlatformVelocity(true);
+        CancelGroundSnap();
+
+        ModelScale = new(.6f, .6f, 1.4f);
+        Audio.Play(Sfx.sfx_jump, Position);
+		startJumpAnimFlag = true;
+    }
+
 	private void WallJump()
 	{
 		holdJumpSpeed = velocity.Z = JumpSpeed;
@@ -786,6 +835,8 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 	{
 		Position = Position with { Z = coyoteZ };
 		velocity.Z = DashJumpSpeed;
+		if (consectiveJumps == 2)
+			velocity.Z += Jump3Speed;
 		holdJumpSpeed = DashJumpHoldSpeed;
 		tHoldJump = DashJumpHoldTime;
 		tCoyote = 0;
@@ -946,18 +997,26 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 	private float holdJumpSpeed;
 	private bool autoJump;
 	private float tNoMove;
-	private float tFootstep;
+	private float tFootstep; 
+	private float tMultiJump;
+    private int consectiveJumps;
 
-	private void StNormalEnter()
+	private float tjumpAnim;
+	private bool startJumpAnimFlag;
+
+    private void StNormalEnter()
 	{
 		tHoldJump = 0;
 		tFootstep = FootstepInterval;
+		consectiveJumps = 0;
 	}
 
 	private void StNormalExit()
 	{
 		tHoldJump = 0;
+		tjumpAnim = 0;
 		tNoMove = 0;
+		tMultiJump = 0;
 		autoJump = false;
 		Model.Rate = 1;
 	}
@@ -1150,9 +1209,26 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 		if (TryDash())
 			return;
 
+		//tick down multi jump timer
+		if(onGround && tMultiJump > 0)
+		{
+			tMultiJump -= Time.Delta * Model.Rate;
+			if(tMultiJump <= 0 || (velocity.XY().LengthSquared() < MinMulJumpVel && consectiveJumps == 2))
+			{
+				consectiveJumps = 0;
+			}
+		}
+
 		// jump & gravity
 		if (tCoyote > 0 && Controls.Jump.ConsumePress())
-			Jump();
+		{
+			if (consectiveJumps == 1)
+				MultiJump(2);
+			else if (consectiveJumps == 2)
+				MultiJump(3);
+			else
+				Jump();
+		}
 		else if (WallJumpCheck())
 			WallJump();
 		else
@@ -1204,9 +1280,33 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 		}
 		else
 		{
+			if (startJumpAnimFlag)
+			{
+				if (consectiveJumps == 1)
+				{
+					Model.Play("jump_2");
+					tjumpAnim = Jump2AnimTime;
+				}
+				else if (consectiveJumps == 2)
+				{
+					Model.Play("jump_3");
+					Model.Rate = 1.9f;
+					tjumpAnim = Jump3AnimTime;
+				}
+				startJumpAnimFlag = false;
+			}
 			// basically resets everything to the first frame of Run over and over
-			Model.Clear();
-			Model.Play("Run");
+			else if (tjumpAnim > 0)
+			{
+				tjumpAnim -= Time.Delta;
+				if (tjumpAnim <= 0)
+					Model.Rate = 1f;
+			}
+			else
+			{
+				Model.Clear();
+				Model.Play("Run");
+			}
 		}
 	}
 
@@ -1346,9 +1446,9 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 
 	#endregion
 
-	#region Skidding State
+    #region Skidding State
 
-	private float tNoSkidJump;
+    private float tNoSkidJump;
 
 	private void StSkiddingEnter()
 	{

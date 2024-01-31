@@ -79,6 +79,7 @@ public class SkinnedModel : Model
 
     public void Play(string name, bool restart = false)
     {
+		Console.WriteLine($"Playing animation {name}");
 		var index = IndexOf(name);
 		if (index >= 0)
 			Play(index, restart);
