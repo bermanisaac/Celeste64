@@ -1,3 +1,5 @@
+A collection (very loose and unorganized) of tweaks/mods to the source code as the result of my experimentation. All changes to the codebase are under the MIT license. All original files in the Content folder still belong to Maddy Makes Games, with modifications made (without endorsement) in the spirit of non-commercial modding.
+
 # Celeste 64: Fragments of the Mountain
 This is the source code and general information for *Celeste 64: Fragments of the Mountain*, a game made by the original Celeste developers in under 2 weeks for Celeste's 6th Anniversary. We haven't done a lot of 3D development so much of this is not very optimized, it's coded in libraries mostly intended for 2D games, and we put it all together very, very quickly. Consider this similar to a weekend jam game, so experiment and learn at your own risk!  
 
